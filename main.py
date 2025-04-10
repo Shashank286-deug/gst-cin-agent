@@ -1,67 +1,30 @@
+import streamlit as st
 import pandas as pd
-from playwright.sync_api import sync_playwright
-import time
-import os
+from gst_lookup import search_gst_and_cin
 
-# Function to search GST and CIN using Playwright
-def search_gst_and_cin(company_name):
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+st.title("GST & CIN Lookup Agent")
 
-        try:
-            # Visit KnowYourGST search page
-            page.goto("https://www.knowyourgst.com/gst-number-search/", timeout=60000)
+uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
 
-            # Type company name into the search bar
-            page.fill("input[name='gst']", company_name)
-            page.keyboard.press("Enter")
-            page.wait_for_timeout(3000)
-
-            # Extract first result (you may need to inspect the correct selectors)
-            result = page.locator(".panel-body")
-            text = result.inner_text()
-
-            gstin = ""
-            cin = ""
-
-            if "GSTIN:" in text:
-                gstin = text.split("GSTIN:")[1].split("\n")[0].strip()
-            if "CIN:" in text:
-                cin = text.split("CIN:")[1].split("\n")[0].strip()
-
-            return gstin, cin
-
-        except Exception as e:
-            print(f"Error for {company_name}: {e}")
-            return "", ""
-
-        finally:
-            browser.close()
-
-# Main function to read Excel and write results
-def main():
-    input_file = "input_companies.xlsx"
-    output_file = "output_with_gst_cin.xlsx"
-
-    if not os.path.exists(input_file):
-        print(f"File '{input_file}' not found.")
-        return
-
-    df = pd.read_excel(input_file)
+if uploaded_file:
+    df = pd.read_excel(uploaded_file)
     df["GST"] = ""
     df["CIN"] = ""
 
-    for idx, row in df.iterrows():
-        name = row["Legal Name"]
-        print(f"Processing: {name}")
-        gst, cin = search_gst_and_cin(name)
-        df.at[idx, "GST"] = gst
-        df.at[idx, "CIN"] = cin
-        time.sleep(2)  # Be nice to the server
+    if st.button("Start Lookup"):
+        with st.spinner("Fetching data..."):
+            for idx, row in df.iterrows():
+                gst, cin = search_gst_and_cin(row["Legal Name"])
+                df.at[idx, "GST"] = gst
+                df.at[idx, "CIN"] = cin
 
-    df.to_excel(output_file, index=False)
-    print(f"Saved results to {output_file}")
+        st.success("Done!")
+        st.dataframe(df)
 
-if __name__ == "__main__":
-    main()
+        # Download button
+        st.download_button(
+            label="Download Result",
+            data=df.to_excel(index=False, engine='openpyxl'),
+            file_name="output_with_gst_cin.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
